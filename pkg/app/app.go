@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"log"
@@ -9,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/go-errors/errors"
 
@@ -24,6 +22,7 @@ import (
 	"github.com/jesseduffield/lazygit/pkg/env"
 	"github.com/jesseduffield/lazygit/pkg/gui"
 	"github.com/jesseduffield/lazygit/pkg/i18n"
+	"github.com/jesseduffield/lazygit/pkg/prompt"
 	"github.com/jesseduffield/lazygit/pkg/updates"
 )
 
@@ -175,39 +174,43 @@ func (app *App) setupRepo() (bool, error) {
 			return false, err
 		}
 
-		var shouldInitRepo bool
 		initialBranchArg := ""
 		switch app.UserConfig.NotARepository {
 		case "prompt":
 			// Offer to initialize a new repository in current directory.
-			fmt.Print(app.Tr.CreateRepo)
-			response, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-			shouldInitRepo = (strings.Trim(response, " \r\n") == "y")
-			if shouldInitRepo {
+			result, err := prompt.Menu(app.Tr.CreateRepo, []string{app.Tr.Yes, app.Tr.No})
+			if err != nil {
+				os.Exit(1)
+			}
+
+			if result == app.Tr.Yes {
 				// Ask for the initial branch name
-				fmt.Print(app.Tr.InitialBranch)
-				response, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-				if trimmedResponse := strings.Trim(response, " \r\n"); len(trimmedResponse) > 0 {
-					initialBranchArg += "--initial-branch=" + app.OSCommand.Quote(trimmedResponse)
+				result, err := prompt.Prompt(app.Tr.InitialBranch)
+				if err != nil {
+					os.Exit(1)
 				}
+
+				if len(result) > 0 {
+					initialBranchArg += "--initial-branch=" + app.OSCommand.Quote(result)
+				}
+
+				if err := app.OSCommand.Cmd.New("git init " + initialBranchArg).Run(); err != nil {
+					return false, err
+				}
+				return false, nil
 			}
 		case "create":
-			shouldInitRepo = true
+			if err := app.OSCommand.Cmd.New("git init").Run(); err != nil {
+				return false, err
+			}
+			return false, nil
 		case "skip":
-			shouldInitRepo = false
 		case "quit":
 			fmt.Fprintln(os.Stderr, app.Tr.NotARepository)
 			os.Exit(1)
 		default:
 			fmt.Fprintln(os.Stderr, app.Tr.IncorrectNotARepository)
 			os.Exit(1)
-		}
-
-		if shouldInitRepo {
-			if err := app.OSCommand.Cmd.New("git init " + initialBranchArg).Run(); err != nil {
-				return false, err
-			}
-			return false, nil
 		}
 
 		// check if we have a recent repo we can open

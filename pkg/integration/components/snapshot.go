@@ -10,6 +10,7 @@ import (
 
 	"github.com/jesseduffield/generics/slices"
 	"github.com/jesseduffield/lazygit/pkg/commands/oscommands"
+	"github.com/jesseduffield/lazygit/pkg/prompt"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -182,10 +183,11 @@ func (self *Snapshotter) compareSnapshots() error {
 }
 
 func promptUserToUpdateSnapshot() bool {
-	fmt.Println("Test failed. Update snapshot? (y/n)")
-	var input string
-	fmt.Scanln(&input)
-	return input == "y"
+	result, err := prompt.Menu("Test failed. Update snapshot?", []string{"Yes", "No"})
+	if err != nil {
+		panic(err)
+	}
+	return result == "Yes"
 }
 
 func generateSnapshots(actualDir string, expectedDir string) (string, string, error) {

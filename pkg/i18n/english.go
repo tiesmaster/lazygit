@@ -11,6 +11,8 @@ Todo list when making a new translation
 package i18n
 
 type TranslationSet struct {
+	Yes                                 string
+	No                                  string
 	NotEnoughSpace                      string
 	DiffTitle                           string
 	FilesTitle                          string
@@ -650,6 +652,8 @@ Thanks for using lazygit! Seriously you rock. Three things to share with you:
 // exporting this so we can use it in tests
 func EnglishTranslationSet() TranslationSet {
 	return TranslationSet{
+		Yes:                                 "Yes",
+		No:                                  "No",
 		NotEnoughSpace:                      "Not enough space to render panels",
 		DiffTitle:                           "Diff",
 		FilesTitle:                          "Files",
@@ -897,8 +901,8 @@ func EnglishTranslationSet() TranslationSet {
 		DiscardFileChangesTitle:             "Discard file changes",
 		DiscardFileChangesPrompt:            "Are you sure you want to discard this commit's changes to this file? If this file was created in this commit, it will be deleted",
 		DisabledForGPG:                      "Feature not available for users using GPG",
-		CreateRepo:                          "Not in a git repository. Create a new git repository? (y/n): ",
-		InitialBranch:                       "Branch name? (leave empty for git's default): ",
+		CreateRepo:                          "Not in a git repository. Create a new git repository?",
+		InitialBranch:                       "Branch name? (leave empty for git's default)",
 		NoRecentRepositories:                "Must open lazygit in a git repository. No valid recent repositories. Exiting.",
 		IncorrectNotARepository:             "The value of 'notARepository' is incorrect. It should be one of 'prompt', 'create', 'skip', or 'quit'.",
 		AutoStashTitle:                      "Autostash?",
