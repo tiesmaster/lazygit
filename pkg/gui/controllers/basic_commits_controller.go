@@ -1,11 +1,14 @@
 package controllers
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/jesseduffield/lazygit/pkg/commands/git_commands"
 	"github.com/jesseduffield/lazygit/pkg/commands/models"
+	"github.com/jesseduffield/lazygit/pkg/gui/keybindings"
 	"github.com/jesseduffield/lazygit/pkg/gui/types"
+	"github.com/jesseduffield/lazygit/pkg/utils"
 )
 
 // This controller is for all contexts that contain a list of commits.
@@ -16,6 +19,7 @@ type ContainsCommits interface {
 	types.Context
 	types.IListContext
 	GetSelected() *models.Commit
+	GetSelectedItems() ([]*models.Commit, int, int)
 	GetCommits() []*models.Commit
 	GetSelectedLineIdx() int
 }
@@ -36,6 +40,7 @@ func NewBasicCommitsController(c *ControllerCommon, context ContainsCommits) *Ba
 			c,
 			context,
 			context.GetSelected,
+			context.GetSelectedItems,
 		),
 	}
 }
@@ -46,13 +51,16 @@ func (self *BasicCommitsController) GetKeybindings(opts types.KeybindingsOpts) [
 			Key:               opts.GetKey(opts.Config.Commits.CheckoutCommit),
 			Handler:           self.withItem(self.checkout),
 			GetDisabledReason: self.require(self.singleItemSelected()),
-			Description:       self.c.Tr.CheckoutCommit,
+			Description:       self.c.Tr.Checkout,
+			Tooltip:           self.c.Tr.CheckoutCommitTooltip,
+			DisplayOnScreen:   true,
 		},
 		{
 			Key:               opts.GetKey(opts.Config.Commits.CopyCommitAttributeToClipboard),
 			Handler:           self.withItem(self.copyCommitAttribute),
 			GetDisabledReason: self.require(self.singleItemSelected()),
 			Description:       self.c.Tr.CopyCommitAttributeToClipboard,
+			Tooltip:           self.c.Tr.CopyCommitAttributeToClipboardTooltip,
 			OpensMenu:         true,
 		},
 		{
@@ -72,12 +80,22 @@ func (self *BasicCommitsController) GetKeybindings(opts types.KeybindingsOpts) [
 			Handler:           self.withItem(self.createResetMenu),
 			GetDisabledReason: self.require(self.singleItemSelected()),
 			Description:       self.c.Tr.ViewResetOptions,
+			Tooltip:           self.c.Tr.ResetTooltip,
 			OpensMenu:         true,
+			DisplayOnScreen:   true,
 		},
 		{
-			Key:         opts.GetKey(opts.Config.Commits.CherryPickCopy),
-			Handler:     self.withItem(self.copyRange),
-			Description: self.c.Tr.CherryPickCopy,
+			Key:               opts.GetKey(opts.Config.Commits.CherryPickCopy),
+			Handler:           self.withItem(self.copyRange),
+			GetDisabledReason: self.require(self.itemRangeSelected(self.canCopyCommits)),
+			Description:       self.c.Tr.CherryPickCopy,
+			Tooltip: utils.ResolvePlaceholderString(self.c.Tr.CherryPickCopyTooltip,
+				map[string]string{
+					"paste":  keybindings.Label(opts.Config.Commits.PasteCommits),
+					"escape": keybindings.Label(opts.Config.Universal.Return),
+				},
+			),
+			DisplayOnScreen: true,
 		},
 		{
 			Key:         opts.GetKey(opts.Config.Commits.ResetCherryPick),
@@ -90,6 +108,14 @@ func (self *BasicCommitsController) GetKeybindings(opts types.KeybindingsOpts) [
 			GetDisabledReason: self.require(self.singleItemSelected()),
 			Description:       self.c.Tr.OpenDiffTool,
 		},
+		// Putting this at the bottom of the list so that it has the lowest priority,
+		// meaning that if the user has configured another keybinding to the same key
+		// then that will take precedence.
+		{
+			// Hardcoding this key because it's not configurable
+			Key:     opts.GetKey("c"),
+			Handler: self.handleOldCherryPickKey,
+		},
 	}
 
 	return bindings
@@ -100,9 +126,9 @@ func (self *BasicCommitsController) copyCommitAttribute(commit *models.Commit) e
 		Title: self.c.Tr.Actions.CopyCommitAttributeToClipboard,
 		Items: []*types.MenuItem{
 			{
-				Label: self.c.Tr.CommitSha,
+				Label: self.c.Tr.CommitHash,
 				OnPress: func() error {
-					return self.copyCommitSHAToClipboard(commit)
+					return self.copyCommitHashToClipboard(commit)
 				},
 			},
 			{
@@ -144,25 +170,25 @@ func (self *BasicCommitsController) copyCommitAttribute(commit *models.Commit) e
 	})
 }
 
-func (self *BasicCommitsController) copyCommitSHAToClipboard(commit *models.Commit) error {
-	self.c.LogAction(self.c.Tr.Actions.CopyCommitSHAToClipboard)
-	if err := self.c.OS().CopyToClipboard(commit.Sha); err != nil {
-		return self.c.Error(err)
+func (self *BasicCommitsController) copyCommitHashToClipboard(commit *models.Commit) error {
+	self.c.LogAction(self.c.Tr.Actions.CopyCommitHashToClipboard)
+	if err := self.c.OS().CopyToClipboard(commit.Hash); err != nil {
+		return err
 	}
 
-	self.c.Toast(self.c.Tr.CommitSHACopiedToClipboard)
+	self.c.Toast(fmt.Sprintf("'%s' %s", commit.Hash, self.c.Tr.CopiedToClipboard))
 	return nil
 }
 
 func (self *BasicCommitsController) copyCommitURLToClipboard(commit *models.Commit) error {
-	url, err := self.c.Helpers().Host.GetCommitURL(commit.Sha)
+	url, err := self.c.Helpers().Host.GetCommitURL(commit.Hash)
 	if err != nil {
-		return self.c.Error(err)
+		return err
 	}
 
 	self.c.LogAction(self.c.Tr.Actions.CopyCommitURLToClipboard)
 	if err := self.c.OS().CopyToClipboard(url); err != nil {
-		return self.c.Error(err)
+		return err
 	}
 
 	self.c.Toast(self.c.Tr.CommitURLCopiedToClipboard)
@@ -170,14 +196,14 @@ func (self *BasicCommitsController) copyCommitURLToClipboard(commit *models.Comm
 }
 
 func (self *BasicCommitsController) copyCommitDiffToClipboard(commit *models.Commit) error {
-	diff, err := self.c.Git().Commit.GetCommitDiff(commit.Sha)
+	diff, err := self.c.Git().Commit.GetCommitDiff(commit.Hash)
 	if err != nil {
-		return self.c.Error(err)
+		return err
 	}
 
 	self.c.LogAction(self.c.Tr.Actions.CopyCommitDiffToClipboard)
 	if err := self.c.OS().CopyToClipboard(diff); err != nil {
-		return self.c.Error(err)
+		return err
 	}
 
 	self.c.Toast(self.c.Tr.CommitDiffCopiedToClipboard)
@@ -185,16 +211,16 @@ func (self *BasicCommitsController) copyCommitDiffToClipboard(commit *models.Com
 }
 
 func (self *BasicCommitsController) copyAuthorToClipboard(commit *models.Commit) error {
-	author, err := self.c.Git().Commit.GetCommitAuthor(commit.Sha)
+	author, err := self.c.Git().Commit.GetCommitAuthor(commit.Hash)
 	if err != nil {
-		return self.c.Error(err)
+		return err
 	}
 
 	formattedAuthor := fmt.Sprintf("%s <%s>", author.Name, author.Email)
 
 	self.c.LogAction(self.c.Tr.Actions.CopyCommitAuthorToClipboard)
 	if err := self.c.OS().CopyToClipboard(formattedAuthor); err != nil {
-		return self.c.Error(err)
+		return err
 	}
 
 	self.c.Toast(self.c.Tr.CommitAuthorCopiedToClipboard)
@@ -202,14 +228,14 @@ func (self *BasicCommitsController) copyAuthorToClipboard(commit *models.Commit)
 }
 
 func (self *BasicCommitsController) copyCommitMessageToClipboard(commit *models.Commit) error {
-	message, err := self.c.Git().Commit.GetCommitMessage(commit.Sha)
+	message, err := self.c.Git().Commit.GetCommitMessage(commit.Hash)
 	if err != nil {
-		return self.c.Error(err)
+		return err
 	}
 
 	self.c.LogAction(self.c.Tr.Actions.CopyCommitMessageToClipboard)
 	if err := self.c.OS().CopyToClipboard(message); err != nil {
-		return self.c.Error(err)
+		return err
 	}
 
 	self.c.Toast(self.c.Tr.CommitMessageCopiedToClipboard)
@@ -217,14 +243,14 @@ func (self *BasicCommitsController) copyCommitMessageToClipboard(commit *models.
 }
 
 func (self *BasicCommitsController) copyCommitSubjectToClipboard(commit *models.Commit) error {
-	message, err := self.c.Git().Commit.GetCommitSubject(commit.Sha)
+	message, err := self.c.Git().Commit.GetCommitSubject(commit.Hash)
 	if err != nil {
-		return self.c.Error(err)
+		return err
 	}
 
 	self.c.LogAction(self.c.Tr.Actions.CopyCommitSubjectToClipboard)
 	if err := self.c.OS().CopyToClipboard(message); err != nil {
-		return self.c.Error(err)
+		return err
 	}
 
 	self.c.Toast(self.c.Tr.CommitSubjectCopiedToClipboard)
@@ -232,14 +258,14 @@ func (self *BasicCommitsController) copyCommitSubjectToClipboard(commit *models.
 }
 
 func (self *BasicCommitsController) openInBrowser(commit *models.Commit) error {
-	url, err := self.c.Helpers().Host.GetCommitURL(commit.Sha)
+	url, err := self.c.Helpers().Host.GetCommitURL(commit.Hash)
 	if err != nil {
-		return self.c.Error(err)
+		return err
 	}
 
 	self.c.LogAction(self.c.Tr.Actions.OpenCommitInBrowser)
 	if err := self.c.OS().OpenLink(url); err != nil {
-		return self.c.Error(err)
+		return err
 	}
 
 	return nil
@@ -250,22 +276,39 @@ func (self *BasicCommitsController) newBranch(commit *models.Commit) error {
 }
 
 func (self *BasicCommitsController) createResetMenu(commit *models.Commit) error {
-	return self.c.Helpers().Refs.CreateGitResetMenu(commit.Sha)
+	return self.c.Helpers().Refs.CreateGitResetMenu(commit.Hash)
 }
 
 func (self *BasicCommitsController) checkout(commit *models.Commit) error {
-	return self.c.Confirm(types.ConfirmOpts{
-		Title:  self.c.Tr.CheckoutCommit,
-		Prompt: self.c.Tr.SureCheckoutThisCommit,
-		HandleConfirm: func() error {
-			self.c.LogAction(self.c.Tr.Actions.CheckoutCommit)
-			return self.c.Helpers().Refs.CheckoutRef(commit.Sha, types.CheckoutRefOptions{})
-		},
-	})
+	return self.c.Helpers().Refs.CreateCheckoutMenu(commit)
 }
 
 func (self *BasicCommitsController) copyRange(*models.Commit) error {
 	return self.c.Helpers().CherryPick.CopyRange(self.context.GetCommits(), self.context)
+}
+
+func (self *BasicCommitsController) canCopyCommits(selectedCommits []*models.Commit, startIdx int, endIdx int) *types.DisabledReason {
+	for _, commit := range selectedCommits {
+		if commit.Hash == "" {
+			return &types.DisabledReason{Text: self.c.Tr.CannotCherryPickNonCommit, ShowErrorInPanel: true}
+		}
+
+		if commit.IsMerge() {
+			return &types.DisabledReason{Text: self.c.Tr.CannotCherryPickMergeCommit, ShowErrorInPanel: true}
+		}
+	}
+
+	return nil
+}
+
+func (self *BasicCommitsController) handleOldCherryPickKey() error {
+	msg := utils.ResolvePlaceholderString(self.c.Tr.OldCherryPickKeyWarning,
+		map[string]string{
+			"copy":  keybindings.Label(self.c.UserConfig().Keybinding.Commits.CherryPickCopy),
+			"paste": keybindings.Label(self.c.UserConfig().Keybinding.Commits.PasteCommits),
+		})
+
+	return errors.New(msg)
 }
 
 func (self *BasicCommitsController) openDiffTool(commit *models.Commit) error {

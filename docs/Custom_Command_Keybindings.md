@@ -6,7 +6,7 @@ You can add custom command keybindings in your config.yml (accessible by pressin
 customCommands:
   - key: '<c-r>'
     context: 'commits'
-    command: 'hub browse -- "commit/{{.SelectedLocalCommit.Sha}}"'
+    command: 'hub browse -- "commit/{{.SelectedLocalCommit.Hash}}"'
   - key: 'a'
     context: 'files'
     command: "git {{if .SelectedFile.HasUnstagedChanges}} add {{else}} reset {{end}} {{.SelectedFile.Name | quote}}"
@@ -50,7 +50,7 @@ Custom command keybindings will appear alongside inbuilt keybindings when you vi
 For a given custom command, here are the allowed fields:
 | _field_ | _description_ | required |
 |-----------------|----------------------|-|
-| key | The key to trigger the command. Use a single letter or one of the values from [here](https://github.com/jesseduffield/lazygit/blob/master/docs/keybindings/Custom_Keybindings.md) | yes |
+| key | The key to trigger the command. Use a single letter or one of the values from [here](https://github.com/jesseduffield/lazygit/blob/master/docs/keybindings/Custom_Keybindings.md). Custom commands without a key specified can be triggered by selecting them from the keybindings (`?`) menu | no |
 | command | The command to run (using Go template syntax for placeholder values) | yes |
 | context | The context in which to listen for the key (see [below](#contexts)) | yes |
 | subprocess | Whether you want the command to run in a subprocess (e.g. if the command requires user input) | no |
@@ -59,6 +59,7 @@ For a given custom command, here are the allowed fields:
 | description | Label for the custom command when displayed in the keybindings menu | no |
 | stream | Whether you want to stream the command's output to the Command Log panel | no |
 | showOutput | Whether you want to show the command's output in a popup within Lazygit | no |
+| outputTitle | The title to display in the popup panel if showOutput is true. If left unset, the command will be used as the title. | no |
 | after | Actions to take after the command has completed | no |
 
 Here are the options for the `after` key:
@@ -85,6 +86,11 @@ The permitted contexts are:
 | commitFiles    | The context you see when pressing enter on a commit or stash entry (warning, might be renamed in future) |
 | stash          | The 'Stash' tab                                                                                          |
 | global         | This keybinding will take affect everywhere                                                              |
+
+> **Bonus**
+>
+> You can use a comma-separated string, such as `context: 'commits, subCommits'`, to make it effective in multiple contexts.
+
 
 ## Prompts
 
@@ -290,9 +296,7 @@ Here's an example using a command but not specifying anything else: so each line
 Your commands can contain placeholder strings using Go's [template syntax](https://jan.newmarch.name/golang/template/chapter-template.html). The template syntax is pretty powerful, letting you do things like conditionals if you want, but for the most part you'll simply want to be accessing the fields on the following objects:
 
 ```
-SelectedLocalCommit
-SelectedReflogCommit
-SelectedSubCommit
+SelectedCommit
 SelectedFile
 SelectedPath
 SelectedLocalBranch
@@ -305,7 +309,10 @@ SelectedWorktree
 CheckedOutBranch
 ```
 
-To see what fields are available on e.g. the `SelectedFile`, see [here](https://github.com/jesseduffield/lazygit/blob/master/pkg/commands/models/file.go) (all the modelling lives in the same directory). Note that the custom commands feature does not guarantee backwards compatibility (until we hit Lazygit version 1.0 of course) which means a field you're accessing on an object may no longer be available from one release to the next. Typically however, all you'll need is `{{.SelectedFile.Name}}`, `{{.SelectedLocalCommit.Sha}}` and `{{.SelectedLocalBranch.Name}}`. In the future we will likely introduce a tighter interface that exposes a limited set of fields for each model.
+(For legacy reasons, `SelectedLocalCommit`, `SelectedReflogCommit`, and `SelectedSubCommit` are also available, but they are deprecated.)
+
+
+To see what fields are available on e.g. the `SelectedFile`, see [here](https://github.com/jesseduffield/lazygit/blob/master/pkg/gui/services/custom_commands/models.go) (all the modelling lives in the same file).
 
 ## Keybinding collisions
 
